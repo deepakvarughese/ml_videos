@@ -1,0 +1,357 @@
+---
+title: "Understanding Linear Regression"
+subtitle: "From Baseline Averages to Best-Fit Lines with Galton's Data"
+format:
+  revealjs:
+    transition: fade
+    slide-number: true
+    code-fold: true
+execute:
+  echo: false
+  warning: false
+---
+
+```{r}
+#| label: setup
+library(ggplot2)
+library(dplyr)
+library(HistData)
+library(flextable)
+library(tibble)
+
+col_point   <- "#0072B2"
+col_mean    <- "#E69F00"
+col_naive   <- "#D55E00"
+col_ols     <- "#009E73"
+col_predict <- "#CC79A7"
+
+theme_deck <- theme_minimal(base_size = 16) +
+  theme(plot.title = element_text(face = "bold"),
+        plot.subtitle = element_text(color = "#7A7A7A"))
+```
+
+```{r}
+#| label: load-data
+data("GaltonFamilies", package = "HistData")
+
+df <- GaltonFamilies %>%
+  filter(gender == "male") %>%
+  select(father, childHeight) %>%
+  rename(son = childHeight) %>%
+  mutate(father = father * 2.54, son = son * 2.54)
+
+n_sons      <- nrow(df)
+mean_son    <- mean(df$son)
+mean_father <- mean(df$father)
+future_fathers <- c(172.5, 185.0, 163.2)
+known_data <- df %>% head(6) %>%
+  mutate(father = round(father,1), son = round(son,1))
+```
+
+## Dataset
+
+Galton's 1886 study: heights of `r n_sons` father-son pairs.
+
+Everything on these slides is computed live from this data.
+
+## Hypothesis
+
+-   Can a father's height predict his son's height?
+
+## The Outcome Variable
+
+Just the son's heights, no predictor yet:
+
+```{r}
+known_data %>% select(son) %>% flextable() %>%
+  set_header_labels(son = "Son's Height (cm)") %>%
+  align(align = "center", part = "all") %>% autofit()
+```
+
+## Question
+
+If this is all we know, what's your best guess for a **new** boy's height?
+
+## Answer
+
+The **average** — it won't be perfect for any one boy, but it's the best single number we have.
+
+## Average Height
+
+$$\text{mean} = `r round(mean_son,1)`\text{ cm}$$
+
+```{r}
+ggplot(df, aes(x = son)) +
+  geom_histogram(bins = 15, fill = col_point, color = "white", alpha = 0.85) +
+  geom_vline(xintercept = mean_son, color = col_mean, linewidth = 1.2, linetype = "dashed") +
+  labs(title = "Distribution of Son Heights", x = "Son's Height (cm)", y = "Count") +
+  theme_deck
+```
+
+## 2 Variables
+
+Now we're also given the father's height:
+
+```{r}
+future_data <- tibble(father = as.character(future_fathers), son = rep("?", 3))
+bind_rows(known_data %>% mutate(father = as.character(father), son = as.character(son)), future_data) %>%
+  flextable() %>%
+  set_header_labels(father = "Father (cm)", son = "Son (cm)") %>%
+  align(align = "center", part = "all") %>%
+  color(i = 7:9, j = 2, color = col_predict) %>%
+  bold(i = 7:9, j = 1:2) %>% autofit()
+```
+
+Can we do better than just guessing the mean?
+
+## Plotting the 2 Variables
+
+```{r}
+ggplot(df, aes(x = father, y = son)) +
+  geom_point(color = col_point, alpha = 0.5, size = 2) +
+  labs(title = "Father's Height vs. Son's Height", x = "Father (cm)", y = "Son (cm)") +
+  theme_deck
+```
+
+## Approach 1: Ignore the Father
+
+Keep guessing the mean, no matter what. Every prediction is the same.
+
+## Approach 2: Father = Son
+
+Predict the son will be exactly as tall as his father.
+
+## A Middle Ground?
+
+-   Mean-only: father matters **0%**.
+-   Y = X: father matters **100%**.
+
+Reality is somewhere in between — let's find it.
+
+## The Equation
+
+$$y = \text{intercept} + (\text{slope} \times x)$$
+
+Every straight-line model is just a choice of these two numbers.
+
+## Two Questions Every Line Must Answer
+
+1.  Where does it cross the y-axis? (**intercept**)
+2.  How steep is it? (**slope**)
+
+## Mean-Only Model: The Slope
+
+The model ignores $x$ completely, so:
+
+$$\text{slope} = 0$$
+
+## Mean-Only Model: The Intercept
+
+```{r}
+slope_mean <- 0
+intercept_mean <- mean(df$son) - slope_mean * mean(df$father)
+```
+
+$$\text{intercept} = \text{mean}(y) = `r round(intercept_mean,1)`$$
+
+## Mean-Only Model: The Line
+
+$$y = `r round(intercept_mean,1)` + (0 \times x) = `r round(intercept_mean,1)`$$
+
+A flat line — same prediction for every father.
+
+## Mean-Only Model: Residuals
+
+::: {.panel-tabset}
+
+### Zoomed
+
+```{r}
+df_pred <- df %>% mutate(pred_mean = intercept_mean)
+ggplot(df_pred, aes(x = father, y = son)) +
+  geom_segment(aes(xend = father, yend = pred_mean), color = col_mean, linewidth = 0.15, alpha = 0.3) +
+  geom_point(color = col_point, alpha = 0.4, size = 1.6) +
+  geom_hline(yintercept = intercept_mean, color = col_mean, linewidth = 1.1, linetype = "dashed") +
+  labs(title = "Mean-Only Model", x = "Father (cm)", y = "Son (cm)") +
+  theme_deck
+```
+
+### True Origin
+
+```{r}
+ggplot(df_pred, aes(x = father, y = son)) +
+  geom_hline(yintercept = intercept_mean, color = col_mean, linewidth = 1.1, linetype = "dashed") +
+  geom_point(color = col_point, alpha = 0.4, size = 1.6) +
+  geom_point(aes(x = 0, y = intercept_mean), color = "red", size = 3) +
+  annotate("text", x = 5, y = intercept_mean + 8, label = "intercept: (0, mean)", color = "red", hjust = 0) +
+  expand_limits(x = 0, y = 0) +
+  labs(title = "Mean-Only Model - Full Axes to Origin", x = "Father (cm)", y = "Son (cm)") +
+  theme_deck
+```
+
+:::
+
+## Naive Model: The Slope
+
+We want $y$ to increase by 1 for every 1-unit increase in $x$:
+
+$$\text{slope} = 1$$
+
+A chosen rule, not derived from the data.
+
+## Naive Model: The Intercept
+
+We want the line to pass exactly through $y = x$:
+
+$$\text{intercept} = 0$$
+
+*(Note: this isn't the "best-fit" intercept for slope = 1 — it's simply the rule "son = father.")*
+
+## Naive Model: The Line
+
+$$y = 0 + (1 \times x) = x$$
+
+## Naive Model: Residuals
+
+::: {.panel-tabset}
+
+### Zoomed
+
+```{r}
+df_pred <- df_pred %>% mutate(pred_naive = father)
+ggplot(df_pred, aes(x = father, y = son)) +
+  geom_segment(aes(xend = father, yend = pred_naive), color = col_naive, linewidth = 0.15, alpha = 0.3) +
+  geom_point(color = col_point, alpha = 0.4, size = 1.6) +
+  geom_abline(intercept = 0, slope = 1, color = col_naive, linewidth = 1.1, linetype = "dashed") +
+  labs(title = "Naive Model (Y = X)", x = "Father (cm)", y = "Son (cm)") +
+  theme_deck
+```
+
+### True Origin
+
+```{r}
+ggplot(df_pred, aes(x = father, y = son)) +
+  geom_abline(intercept = 0, slope = 1, color = col_naive, linewidth = 1.1, linetype = "dashed") +
+  geom_point(color = col_point, alpha = 0.4, size = 1.6) +
+  geom_point(aes(x = 0, y = 0), color = "red", size = 3) +
+  annotate("text", x = 5, y = 15, label = "intercept: (0, 0)", color = "red", hjust = 0) +
+  expand_limits(x = 0, y = 0) +
+  labs(title = "Naive Model - Full Axes to Origin", x = "Father (cm)", y = "Son (cm)") +
+  theme_deck
+```
+
+:::
+
+## Why Not Just Pick One?
+
+-   Mean-only throws away the father's height entirely.
+-   Y = X throws away everything we know about the whole population.
+
+We want the line that makes the **smallest possible errors** — let's solve for it.
+
+## OLS: The Slope
+
+$$\text{slope} = \frac{\text{covariance}(x,y)}{\text{variance}(x)}$$
+
+```{r}
+slope_ols <- cov(df$father, df$son) / var(df$father)
+```
+
+$$\text{slope} = `r round(slope_ols,3)`$$
+
+## OLS: The Intercept
+
+$$\text{intercept} = \text{mean}(y) - (\text{slope} \times \text{mean}(x))$$
+
+```{r}
+intercept_ols <- mean(df$son) - slope_ols * mean(df$father)
+ols_full <- lm(son ~ father, data = df)
+```
+
+$$\text{intercept} = `r round(intercept_ols,1)`$$
+
+## OLS: The Line
+
+$$y = `r round(intercept_ols,1)` + (`r round(slope_ols,3)` \times x)$$
+
+This line is **solved for**, not guessed — it's the one that minimizes total prediction error.
+
+## OLS Regression Line
+
+::: {.panel-tabset}
+
+### Zoomed
+
+```{r}
+df_full <- df %>% mutate(ols_pred = predict(ols_full))
+ggplot(df_full, aes(x = father, y = son)) +
+  geom_segment(aes(xend = father, yend = ols_pred), color = col_ols, linewidth = 0.15, alpha = 0.3) +
+  geom_point(color = col_point, alpha = 0.4, size = 1.6) +
+  geom_abline(intercept = intercept_ols, slope = slope_ols, color = col_ols, linewidth = 1.1) +
+  labs(title = "OLS Linear Regression", subtitle = paste("N =", n_sons, "sons"),
+       x = "Father (cm)", y = "Son (cm)") +
+  theme_deck
+```
+
+### True Origin
+
+```{r}
+ggplot(df_full, aes(x = father, y = son)) +
+  geom_abline(intercept = intercept_ols, slope = slope_ols, color = col_ols, linewidth = 1.1) +
+  geom_point(color = col_point, alpha = 0.4, size = 1.6) +
+  geom_point(aes(x = 0, y = intercept_ols), color = "red", size = 3) +
+  annotate("text", x = 5, y = intercept_ols + 8, label = "intercept", color = "red", hjust = 0) +
+  expand_limits(x = 0, y = 0) +
+  labs(title = "OLS Linear Regression - Full Axes to Origin",
+       subtitle = paste("N =", n_sons, "sons"), x = "Father (cm)", y = "Son (cm)") +
+  theme_deck
+```
+
+:::
+
+## Comparing the Three Models
+
+Every model makes prediction errors. We can measure how far off each one typically is — we'll cover exactly how in a future class.
+
+```{r}
+df_eval <- df %>%
+  mutate(pred_mean = intercept_mean, pred_naive = father, pred_ols = predict(ols_full))
+
+err <- tibble(
+  Model = c("Mean-only", "Naive (Y=X)", "OLS"),
+  Error = c(
+    sqrt(mean((df_eval$son - df_eval$pred_mean)^2)),
+    sqrt(mean((df_eval$son - df_eval$pred_naive)^2)),
+    sqrt(mean((df_eval$son - df_eval$pred_ols)^2))
+  )
+)
+
+ggplot(err, aes(x = reorder(Model, Error), y = Error, fill = Model)) +
+  geom_col(width = 0.6, show.legend = FALSE) +
+  scale_fill_manual(values = c("Mean-only" = col_mean, "Naive (Y=X)" = col_naive, "OLS" = col_ols)) +
+  labs(title = "Typical Prediction Error, by Model", x = NULL, y = "Error (cm)") +
+  theme_deck
+```
+
+OLS makes the smallest errors — it's the best of the three.
+
+## Explanatory Models vs Predictor Models
+
+In an explanatory model , the outcome (y) is known to the investigator. The focus is on solving for the slope. 
+In a predictive model, the slope and intercept are known to the investigator (based on training data). The focus is on solving for y. 
+
+## Galton's Own Discovery
+
+The OLS slope, `r round(slope_ols,2)`, is well below 1.
+
+Tall fathers have sons who are tall, but closer to average. Short fathers have sons who are short, but also closer to average.
+
+Galton called this **"regression toward mediocrity"** — where the word *regression* comes from.
+
+## Recap
+
+1.  No predictor → guess the **mean**.
+2.  Two rigid rules (mean-only, Y = X) both fall short.
+3.  OLS **solves** for the slope and intercept that minimize error.
+4.  OLS makes the smallest prediction errors of the three.
+5.  Its slope < 1 reveals **regression to the mean** — Galton's original insight.
